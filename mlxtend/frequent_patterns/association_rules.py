@@ -33,7 +33,7 @@ def association_rules(
     df: pd.DataFrame,
     df_or: pd.DataFrame,
     num_itemsets: int,
-    disabled: np.ndarray,
+    null_values=False,
     metric="confidence",
     min_threshold=0.8,
     support_only=False,
@@ -47,6 +47,15 @@ def association_rules(
     df : pandas DataFrame
       pandas DataFrame of frequent itemsets
       with columns ['support', 'itemsets']
+
+    df_or : pandas DataFrame
+      DataFrame with original input data
+
+    num_itemsets : int
+      Number of transactions in original input data
+
+    null_values : bool (default: True)
+      In case there are null values as NaNs in the original input data
 
     metric : string (default: 'confidence')
       Metric to evaluate if a rule is of interest.
@@ -164,7 +173,7 @@ def association_rules(
         "consequent support": lambda _, __, sC, ____, _____, ______, _______, ________: sC,
         "support": lambda sAC, _, __, ___, ____, _____, ______, _______: sAC,
         "confidence": lambda sAC, sA, _, disAC, disA, __, dis_int, ___: (sAC*(num_itemsets - disAC)) / (sA*(num_itemsets - disA) - dis_int),
-        "lift": lambda sAC, sA, sC, disAC, disA, disC, dis_int, dis_int_: metric_dict["confidence"](sAC, sA, sC, disAC, disA, disC, dis_int, dis_int_) / (sC*(num_itemsets - disC) - dis_int_),
+        "lift": lambda sAC, sA, sC, disAC, disA, disC, dis_int, dis_int_: metric_dict["confidence"](sAC, sA, sC, disAC, disA, disC, dis_int, dis_int_) / sC,
         "representativity": lambda _, __, disAC, ____, ___, ______, _______, ________ : (num_itemsets-disAC)/num_itemsets,
         "leverage": lambda sAC, sA, sC, _, __, ____, _____, ______: metric_dict["support"](sAC, sA, sC, disAC, disA, disC, dis_int, dis_int_) - sA * sC,
         "conviction": lambda sAC, sA, sC, disAC, disA, disC, dis_int, dis_int_: conviction_helper(metric_dict["confidence"](sAC, sA, sC, disAC, disA, disC, dis_int, dis_int_), sC),
@@ -194,9 +203,12 @@ def association_rules(
     rule_consequents = []
     rule_supports = []
 
-    # assign columns from original df to be the same on the disabled.
-    disabled = pd.DataFrame(disabled)
-    disabled.columns = df_or.columns
+    # Define the disabled df, assign columns from original df to be the same on the disabled.
+    disabled=df_or.copy()
+    if null_values:
+        disabled = np.where(pd.isna(disabled), 1, np.nan) + np.where((disabled == 0) | (disabled == 1), np.nan, 0)
+        disabled = pd.DataFrame(disabled)
+        disabled.columns = df_or.columns
 
     # iterate over all frequent itemsets
     for k in frequent_items_dict.keys():
@@ -219,57 +231,52 @@ def association_rules(
                         sA = frequent_items_dict[antecedent]
                         sC = frequent_items_dict[consequent]
 
-                        an=list(antecedent)
-                        con=list(consequent)
-                        an.extend(con)
+                        # if the input dataframe is complete
+                        if not null_values:
+                            disAC, disA, disC, dis_int, dis_int_ = 0, 0, 0, 0, 0
+                            num_itemsets=1
 
-                        dec=disabled.loc[:,an]
-                        _dec=disabled.loc[:,list(antecedent)]
-                        __dec=disabled.loc[:,list(consequent)]
-                        dec_=df_or.loc[:,list(antecedent)]
-                        dec__=df_or.loc[:,list(consequent)]
+                        else:
+                            an=list(antecedent)
+                            con=list(consequent)
+                            an.extend(con)
 
-                        disAC=0
-                        disA=0
-                        disC=0
-                        dis_int=0
-                        dis_int_=0
-                        for i in range(len(dec.index)):
-                            v=list(dec.iloc[i,:])
-                            x=list(_dec.iloc[i,:])
-                            y=list(__dec.iloc[i,:])
-                            z=list(dec_.iloc[i,:])
-                            w=list(dec__.iloc[i,:])
-                            # if (1 in x) and all(x=='?' for x in y): ##
-                            if 1 in set(v):
-                                disAC+=1
-                            if 1 in set(x):
-                                disA+=1
-                            if 1 in y:
-                                disC+=1
+                            # select data of antecedent, consequent and combined from disabled
+                            dec=disabled.loc[:,an]
+                            _dec=disabled.loc[:,list(antecedent)]
+                            __dec=disabled.loc[:,list(consequent)]
 
-                        # for i in range(len(_dec.index)):
-                            # x=list(_dec.iloc[i,:])
-                            # y=list(__dec.iloc[i,:])
-                            # if 1 in set(x):
-                            #     disA+=1
-                            # if 1 in y:
-                            #     disC+=1
+                            # select data of antecedent and consequent from original
+                            dec_=df_or.loc[:,list(antecedent)]
+                            dec__=df_or.loc[:,list(consequent)]
 
-                        # for i in range(len(__dec.index)):
-                        #     x=list(__dec.iloc[i,:])
-                        #     y=list(_dec.iloc[i,:])
-                        #     z=list(dec_.iloc[i,:])
-                        #     w=list(dec__.iloc[i,:])
-                            # if (1 in x) and (True in np.isnan(y)) and (0 not in z):
+                            # disabled counts
+                            disAC, disA, disC, dis_int, dis_int_ = 0, 0, 0, 0, 0
+                            for i in range(len(dec.index)):
+                                # select the i-th iset from the disabled dataset
+                                item_comb=list(dec.iloc[i,:])
+                                item_dis_an=list(_dec.iloc[i,:])
+                                item_dis_con=list(__dec.iloc[i,:])
 
-                            # if (1 in x) and ((0 not in z) and ('?' not in z)):
-                            # if (1 in x) and ((0 not in z) and (1 in z)):
-                            if (1 in y) and all(j==1 for j in z):
-                                dis_int+=1
-                            # if (1 in y) and ((0 not in w) and ('?' not in w)):
-                            if (1 in x) and all(j==1 for j in w):
-                                dis_int_+=1
+                                # select the i-th iset from the original dataset
+                                item_or_an=list(dec_.iloc[i,:])
+                                item_or_con=list(dec__.iloc[i,:])
+
+                                # check and keep count if there is a null value in combined, antecedent, consequent
+                                if 1 in set(item_comb):
+                                    disAC+=1
+                                if 1 in set(item_dis_an):
+                                    disA+=1
+                                if 1 in item_dis_con:
+                                    disC+=1
+
+                                # check and keep count if there is a null value in consequent AND all items are present in antecedent
+                                if (1 in item_dis_con) and all(j==1 for j in item_or_an):
+                                    dis_int+=1
+
+                                # check and keep count if there is a null value in antecedent AND all items are present in consequent
+                                if (1 in item_dis_an) and all(j==1 for j in item_or_con):
+                                    dis_int_+=1
 
                     except KeyError as e:
                         s = (
@@ -284,7 +291,6 @@ def association_rules(
                     # check for the threshold
 
                 score = metric_dict[metric](sAC, sA, sC, disAC, disA, disC, dis_int, dis_int_)
-                # print(score)
                 if score >= min_threshold:
                     rule_antecedents.append(antecedent)
                     rule_consequents.append(consequent)

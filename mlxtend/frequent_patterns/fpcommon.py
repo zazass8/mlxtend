@@ -17,9 +17,6 @@ def setup_fptree(df, min_support):
         if df.size == 0:
             itemsets = df.values
         else:
-            # df.replace('?',np.nan,inplace=True)
-            # itemsets=df.values
-            # itemsets=csr_matrix(itemsets)
             itemsets = df.sparse.to_coo().tocsr()
             is_sparse = True
     else:
@@ -30,14 +27,6 @@ def setup_fptree(df, min_support):
     # if itemsets is sparse, np.sum returns an np.matrix of shape (1, N)
     disabled=df.copy()
     disabled = np.where(pd.isna(disabled), 1, np.nan) + np.where((disabled == 0) | (disabled == 1), np.nan, 0)
-    # disabled.replace(1,np.nan,inplace=True)
-    # disabled.replace(0,np.nan,inplace=True)
-    # disabled.replace('?',1,inplace=True)
-
-    # for y in range(itemsets.shape[1]):
-    #     for x in range(itemsets.shape[0]):
-    #         if itemsets[x,y]=='?':
-    #             itemsets[x,y]=np.nan
 
     item_support = np.array(np.nansum(itemsets, axis=0)
                     / (float(num_itemsets) - np.nansum(disabled, axis=0)))
@@ -73,7 +62,7 @@ def setup_fptree(df, min_support):
         itemset.sort(key=rank.get, reverse=True)
         tree.insert_itemset(itemset)
 
-    return tree, disabled, df, rank
+    return tree, disabled, rank
 
 
 def generate_itemsets(generator, df_or, disabled, num_itemsets, colname_map):
@@ -82,37 +71,33 @@ def generate_itemsets(generator, df_or, disabled, num_itemsets, colname_map):
     df = df_or.copy().values
     for sup, iset in generator:
         itemsets.append(frozenset(iset))
+        # select data of iset from disabled dataset
         dec=disabled[:,iset]
+        # select data of iset from original dataset
         _dec=df[:,iset]
+
+        # case if iset only has one element
         if len(iset)==1:
-            # dec=disabled[:,iset]
             supports.append((sup - np.nansum(dec))
                             / (num_itemsets - np.nansum(dec)))
+            
+        # case if iset has multiple elements
         elif len(iset)>1:
-            # dec=disabled[:,iset]
-            # _dec=df[:,iset]
-
             denom=0
             num=0
             for i in range(dec.shape[0]):
-                x=list(dec[i,:])
-                y=list(_dec[i,:])
-                if 1 in set(x):
+                # select the i-th iset from disabled dataset
+                item_dsbl=list(dec[i,:])
+                # select the i-th iset from original dataset
+                item_orig=list(_dec[i,:])
+
+                # check and keep count if there is a null value in iset of disabled
+                if 1 in set(item_dsbl):
                     denom+=1
-                    if (0 not in set(y)) or (all(np.isnan(x) for x in y)):
+
+                    # check and keep count if item doesn't exist OR all values are null in iset of original
+                    if (0 not in set(item_orig)) or (all(np.isnan(x) for x in item_orig)):
                         num-=1
-
-            # for i in range(_dec.shape[0]):
-                #also counting the transactions that have all passes but at least
-                #one '?'.
-                # z=list(dec[i,:])
-                # y=list(_dec[i,:])
-                # if (True in np.isnan(y)) and (1 in y) and (0 not in y):
-                # if ((True in np.isnan(y)) and (1 in y) and (0 not in y)) or (all(np.isnan(y))):
-
-                # if (1 in z) and ((0 not in y) and ('?' not in y)):
-                # if ((1 in x) and (0 not in set(y))) or (all(np.isnan(x) for x in y)):
-                #     num-=1
                     
             if (num_itemsets-denom==0):
                 supports.append(0)
@@ -129,7 +114,7 @@ def generate_itemsets(generator, df_or, disabled, num_itemsets, colname_map):
     return res_df
 
 
-def valid_input_check(df):
+def valid_input_check(df, null_values = False):
     if f"{type(df)}" == "<class 'pandas.core.frame.SparseDataFrame'>":
         msg = (
             "SparseDataFrame support has been deprecated in pandas 1.0,"
@@ -155,7 +140,11 @@ def valid_input_check(df):
             )
 
     # Fast path: if all columns are boolean, there is nothing to checks
-    all_bools = df.dtypes.apply(pd.api.types.is_bool_dtype).all()
+    if null_values:
+        all_bools = df.applymap(lambda x: pd.isna(x) or isinstance(x, bool)).all().all()
+    else:
+        all_bools = df.dtypes.apply(pd.api.types.is_bool_dtype).all()
+        
     if not all_bools:
         warnings.warn(
             "DataFrames with non-bool types result in worse computational"
@@ -171,7 +160,13 @@ def valid_input_check(df):
                 values = df.sparse.to_coo().tocoo().data
         else:
             values = df.values
-        idxs = np.where((values != 1) & (values != 0) & (~np.isnan(values)))
+
+        # Ignore NaNs if null_values is True
+        if null_values:    
+            idxs = np.where((values != 1) & (values != 0) & (~np.isnan(values)))
+        else:    
+            idxs = np.where((values != 1) & (values != 0))
+
         if len(idxs[0]) > 0:
             # idxs has 1 dimension with sparse data and 2 with dense data
             val = values[tuple(loc[0] for loc in idxs)]
