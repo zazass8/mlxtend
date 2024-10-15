@@ -13,6 +13,8 @@ from itertools import combinations
 import numpy as np
 import pandas as pd
 
+from ..frequent_patterns import fpcommon as fpc
+
 _metrics = [
     "antecedent support",
     "consequent support",
@@ -112,6 +114,9 @@ def association_rules(
     https://rasbt.github.io/mlxtend/user_guide/frequent_patterns/association_rules/
 
     """
+    # check for valid input
+    fpc.valid_input_check(df_or, null_values)
+
     if not df.shape[0]:
         raise ValueError(
             "The input DataFrame `df` containing " "the frequent itemsets is empty."
@@ -125,8 +130,8 @@ def association_rules(
         )
 
     def kulczynski_helper(sAC, sA, sC, disAC, disA, disC, dis_int, dis_int_):
-        conf_AC = sAC / sA
-        conf_CA = sAC / sC
+        conf_AC = sAC * (num_itemsets - disAC) / (sA * (num_itemsets - disA) - dis_int)
+        conf_CA = sAC * (num_itemsets - disAC) / (sC * (num_itemsets - disC) - dis_int_)
         kulczynski = (conf_AC + conf_CA) / 2
         return kulczynski
 

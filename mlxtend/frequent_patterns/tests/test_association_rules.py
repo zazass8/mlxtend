@@ -308,9 +308,9 @@ def test_on_df_with_missing_entries():
         ],
     }
 
-    df = pd.DataFrame(dict)
+    df_missing = pd.DataFrame(dict)
 
-    numpy_assert_raises(KeyError, association_rules, df, df, len(df))
+    numpy_assert_raises(KeyError, association_rules, df_missing, df, len(df))
 
 
 def test_on_df_with_missing_entries_support_only():
@@ -339,8 +339,10 @@ def test_on_df_with_missing_entries_support_only():
         ],
     }
 
-    df = pd.DataFrame(dict)
-    df_result = association_rules(df, df, len(df), support_only=True, min_threshold=0.1)
+    df_missing = pd.DataFrame(dict)
+    df_result = association_rules(
+        df_missing, df, len(df), support_only=True, min_threshold=0.1
+    )
 
     assert df_result["support"].shape == (18,)
     assert int(np.isnan(df_result["support"].values).any()) != 1

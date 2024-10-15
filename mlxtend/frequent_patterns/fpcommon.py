@@ -68,18 +68,15 @@ def setup_fptree(df, min_support):
     return tree, disabled, rank
 
 
-def generate_itemsets(
-    generator, df_or, disabled, min_support, num_itemsets, colname_map
-):
+def generate_itemsets(generator, df, disabled, min_support, num_itemsets, colname_map):
     itemsets = []
     supports = []
-    df = df_or.copy().values
     for sup, iset in generator:
         itemsets.append(frozenset(iset))
         # select data of iset from disabled dataset
         dec = disabled[:, iset]
         # select data of iset from original dataset
-        _dec = df[:, iset]
+        _dec = df.values[:, iset]
 
         # case if iset only has one element
         if len(iset) == 1:
@@ -163,6 +160,19 @@ def valid_input_check(df, null_values=False):
             "Please use a DataFrame with bool type",
             DeprecationWarning,
         )
+
+        # If null_values is True but no NaNs are found, raise an error
+        has_nans = pd.isna(df).any().any()
+        if null_values and not has_nans:
+            raise ValueError(
+                "null_values=True is not permitted when there are no NaN values in the DataFrame."
+            )
+        # If null_values is False but NaNs are found, raise an error
+        if not null_values and has_nans:
+            raise ValueError(
+                "NaN values are not permitted in the DataFrame when null_values=False."
+            )
+
         # Pandas is much slower than numpy, so use np.where on Numpy arrays
         if hasattr(df, "sparse"):
             if df.size == 0:
@@ -185,6 +195,12 @@ def valid_input_check(df, null_values=False):
                 "The allowed values for a DataFrame"
                 " are True, False, 0, 1. Found value %s" % (val)
             )
+
+            if null_values:
+                s = (
+                    "The allowed values for a DataFrame"
+                    " are True, False, 0, 1, NaN. Found value %s" % (val)
+                )
             raise ValueError(s)
 
 
